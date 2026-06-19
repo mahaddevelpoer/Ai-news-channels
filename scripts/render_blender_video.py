@@ -44,7 +44,11 @@ def import_fbx(filepath: Path, collection_name: str) -> list[bpy.types.Object]:
     if not filepath.exists():
         raise FileNotFoundError(f"Missing asset: {filepath}")
     before = set(bpy.data.objects)
-    bpy.ops.import_scene.fbx(filepath=str(filepath))
+    try:
+        bpy.ops.import_scene.fbx(filepath=str(filepath))
+    except Exception as exc:
+        print(f"FBX import failed for {filepath}: {exc}")
+        return []
     imported = [obj for obj in bpy.data.objects if obj not in before]
     collection = bpy.data.collections.new(collection_name)
     bpy.context.scene.collection.children.link(collection)
@@ -69,6 +73,11 @@ def bounds(objects: list[bpy.types.Object]) -> tuple[Vector, Vector]:
 
 
 def normalize_group(objects: list[bpy.types.Object], name: str, location: tuple, target_height: float, rotation_z: float = 0) -> bpy.types.Object:
+    if not objects:
+        empty = bpy.data.objects.new(name, None)
+        bpy.context.scene.collection.objects.link(empty)
+        empty.location = location
+        return empty
     low, high = bounds(objects)
     center = (low + high) / 2
     height = max(0.001, high.z - low.z)
@@ -86,6 +95,31 @@ def normalize_group(objects: list[bpy.types.Object], name: str, location: tuple,
     empty.scale = (scale, scale, scale)
     empty.rotation_euler[2] = math.radians(rotation_z)
     return empty
+
+
+def create_fallback_anchor(name: str, location: tuple, rotation_z: float, suit: bpy.types.Material, skin: bpy.types.Material) -> tuple[bpy.types.Object, list[bpy.types.Object]]:
+    parts = []
+    body = add_cube(f"{name}_body", (0, 0, 0.82), (0.42, 0.25, 0.82), suit)
+    parts.append(body)
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=24, ring_count=12, radius=0.19, location=(0, 0, 1.36))
+    head = bpy.context.object
+    head.name = f"{name}_head"
+    head.data.materials.append(skin)
+    parts.append(head)
+    for side in (-1, 1):
+        arm = add_cube(f"{name}_arm_{side}", (side * 0.32, -0.02, 0.85), (0.12, 0.12, 0.62), suit)
+        arm.rotation_euler[1] = math.radians(side * 9)
+        parts.append(arm)
+    root = normalize_group(parts, f"{name}_root", location, 1.62, rotation_z=rotation_z)
+    return root, parts
+
+
+def create_fallback_studio(blue: bpy.types.Material, red: bpy.types.Material, black: bpy.types.Material) -> None:
+    add_cube("fallback_floor", (0, 0, -0.04), (7.2, 5.2, 0.06), black)
+    add_cube("fallback_back_wall", (0, 1.55, 1.35), (7.2, 0.08, 2.7), blue)
+    add_cube("fallback_side_left", (-3.0, 0.35, 1.15), (0.08, 2.6, 2.3), blue)
+    add_cube("fallback_side_right", (3.0, 0.35, 1.15), (0.08, 2.6, 2.3), blue)
+    add_cube("fallback_light_bar", (0, 1.46, 2.45), (5.2, 0.05, 0.14), red)
 
 
 def add_cube(name: str, location: tuple, scale: tuple, mat: bpy.types.Material) -> bpy.types.Object:
@@ -230,17 +264,28 @@ def main() -> None:
     red = material("news_red", (0.9, 0.02, 0.02, 1), 0.3)
     black = material("news_black", (0.015, 0.015, 0.018, 1))
     blue = material("news_blue", (0.02, 0.08, 0.18, 1), 0.12)
+    suit = material("fallback_suit", (0.015, 0.02, 0.035, 1))
+    skin = material("fallback_skin", (0.74, 0.54, 0.42, 1))
 
     studio_objects = import_fbx(STUDIO_FBX, "existing_3d_studio")
-    studio_root = normalize_group(studio_objects, "studio_root", (0, 0.65, 0.0), 3.2)
+    if studio_objects:
+        normalize_group(studio_objects, "studio_root", (0, 0.65, 0.0), 3.2)
+    else:
+        create_fallback_studio(blue, red, black)
     add_cube("news_floor_fill", (0, 0, -0.03), (7.2, 5.2, 0.05), black)
     add_cube("news_desk", (0, -0.65, 0.72), (4.4, 0.72, 0.48), blue)
     add_cube("news_desk_red_band", (0, -1.03, 0.88), (4.5, 0.05, 0.18), red)
 
     anchor_a_objects = import_fbx(TALKING_ANCHOR_FBX if TALKING_ANCHOR_FBX.exists() else IDLE_ANCHOR_FBX, "anchor_a")
     anchor_b_objects = import_fbx(TALKING_ANCHOR_FBX if TALKING_ANCHOR_FBX.exists() else IDLE_ANCHOR_FBX, "anchor_b")
-    anchor_a = normalize_group(anchor_a_objects, "anchor_a_root", (-1.35, -0.2, 0.03), 1.62, rotation_z=7)
-    anchor_b = normalize_group(anchor_b_objects, "anchor_b_root", (1.35, -0.2, 0.03), 1.62, rotation_z=-7)
+    if anchor_a_objects:
+        anchor_a = normalize_group(anchor_a_objects, "anchor_a_root", (-1.35, -0.2, 0.03), 1.62, rotation_z=7)
+    else:
+        anchor_a, anchor_a_objects = create_fallback_anchor("anchor_a", (-1.35, -0.2, 0.03), 7, suit, skin)
+    if anchor_b_objects:
+        anchor_b = normalize_group(anchor_b_objects, "anchor_b_root", (1.35, -0.2, 0.03), 1.62, rotation_z=-7)
+    else:
+        anchor_b, anchor_b_objects = create_fallback_anchor("anchor_b", (1.35, -0.2, 0.03), -7, suit, skin)
     loop_imported_actions(anchor_a_objects + anchor_b_objects)
 
     breaking_screen = add_breaking_screen()
