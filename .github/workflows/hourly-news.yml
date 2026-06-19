@@ -1,6 +1,9 @@
 name: Hourly AI News Video
 
 on:
+  push:
+    branches:
+      - main
   schedule:
     - cron: "0 * * * *"
   workflow_dispatch:
