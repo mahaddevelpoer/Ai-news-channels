@@ -114,9 +114,13 @@ def main() -> None:
         ):
             raise RuntimeError("Could not prepare final audio.")
 
-    frames = sorted(FRAMES_DIR.glob("frame_*.png")) if FRAMES_DIR.exists() else []
+    frames = []
+    if FRAMES_DIR.exists():
+        frames = sorted([p for p in FRAMES_DIR.iterdir() if p.is_file() and p.name.startswith("frame_")])
     print(f"Render video exists: {VIDEO_PATH.exists()}")
     print(f"Rendered frame count: {len(frames)}")
+    if frames:
+        print(f"First rendered frame: {frames[0]}")
 
     commands: list[list[str]] = []
     if VIDEO_PATH.exists():
@@ -139,6 +143,14 @@ def main() -> None:
             ]
         )
     if frames:
+        normalized_dir = ROOT_DIR / "output" / "normalized_frames"
+        normalized_dir.mkdir(parents=True, exist_ok=True)
+        for old in normalized_dir.glob("frame_*.png"):
+            old.unlink()
+        for idx, frame in enumerate(frames, start=1):
+            target = normalized_dir / f"frame_{idx:04d}.png"
+            shutil.copyfile(frame, target)
+
         encoded = run(
             [
                 ffmpeg,
@@ -148,7 +160,7 @@ def main() -> None:
                 "-start_number",
                 "1",
                 "-i",
-                str(FRAMES_DIR / "frame_%04d.png"),
+                str(normalized_dir / "frame_%04d.png"),
                 "-vf",
                 "fps=24,scale=1280:720,format=yuv420p",
                 "-c:v",
@@ -171,9 +183,32 @@ def main() -> None:
                     "-pattern_type",
                     "glob",
                     "-i",
-                    str(FRAMES_DIR / "frame_*.png"),
+                    str(normalized_dir / "frame_*.png"),
                     "-vf",
                     "fps=24,scale=1280:720,format=yuv420p",
+                    "-c:v",
+                    "libx264",
+                    "-crf",
+                    "23",
+                    "-preset",
+                    "medium",
+                    str(TEMP_VIDEO),
+                ]
+            )
+        if not encoded:
+            print("Frame sequence encode failed. Creating a moving hold from the first studio frame.")
+            encoded = run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-loop",
+                    "1",
+                    "-i",
+                    str(normalized_dir / "frame_0001.png"),
+                    "-t",
+                    f"{duration_seconds:.3f}",
+                    "-vf",
+                    "scale=1280:720,zoompan=z='min(zoom+0.0008,1.08)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1280x720:fps=24,format=yuv420p",
                     "-c:v",
                     "libx264",
                     "-crf",

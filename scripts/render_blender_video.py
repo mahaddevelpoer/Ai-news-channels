@@ -307,6 +307,13 @@ def main() -> None:
     set_easing()
     bpy.ops.wm.save_as_mainfile(filepath=str(ROOT_DIR / "output" / "scene.blend"))
     bpy.ops.render.render(animation=True)
+    rendered_frames = [p for p in FRAMES_DIR.iterdir() if p.is_file() and p.name.startswith("frame_")]
+    if not rendered_frames:
+        fallback_frame = FRAMES_DIR / "frame_0001.png"
+        scene.frame_set(1)
+        scene.render.filepath = str(fallback_frame)
+        bpy.ops.render.render(write_still=True)
+        print("Animation frame sequence was empty, wrote studio overview fallback frame.")
     print(f"Rendered animated studio sequence at {FPS} FPS to {FRAMES_DIR}")
 
 
