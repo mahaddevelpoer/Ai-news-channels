@@ -219,7 +219,6 @@ def main() -> None:
     scene.render.resolution_x = 1280
     scene.render.resolution_y = 720
     scene.render.resolution_percentage = 100
-    scene.render.filepath = str(FRAMES_DIR / "frame_")
     scene.render.image_settings.file_format = "PNG"
     try:
         scene.render.engine = "BLENDER_EEVEE_NEXT"
@@ -306,15 +305,28 @@ def main() -> None:
 
     set_easing()
     bpy.ops.wm.save_as_mainfile(filepath=str(ROOT_DIR / "output" / "scene.blend"))
-    bpy.ops.render.render(animation=True)
-    rendered_frames = [p for p in FRAMES_DIR.iterdir() if p.is_file() and p.name.startswith("frame_")]
-    if not rendered_frames:
-        fallback_frame = FRAMES_DIR / "frame_0001.png"
-        scene.frame_set(1)
-        scene.render.filepath = str(fallback_frame)
+
+    # Blender 5.x on GitHub Actions can report success for animation renders while
+    # writing no sequence files. Render deterministic sampled frames manually.
+    sampled_frames: list[int] = []
+    source_frame = 1
+    while source_frame <= total_frames:
+        sampled_frames.append(source_frame)
+        source_frame += 2
+    if sampled_frames[-1] != total_frames:
+        sampled_frames.append(total_frames)
+
+    for idx, source_frame in enumerate(sampled_frames, start=1):
+        output_path = FRAMES_DIR / f"frame_{idx:04d}.png"
+        scene.frame_set(source_frame)
+        scene.render.filepath = str(output_path)
         bpy.ops.render.render(write_still=True)
-        print("Animation frame sequence was empty, wrote studio overview fallback frame.")
-    print(f"Rendered animated studio sequence at {FPS} FPS to {FRAMES_DIR}")
+
+    rendered_frames = sorted([p for p in FRAMES_DIR.iterdir() if p.is_file() and p.name.startswith("frame_")])
+    if not rendered_frames:
+        raise RuntimeError("Blender did not write any studio frames to output/frames.")
+
+    print(f"Rendered {len(rendered_frames)} verified studio frames at source FPS {FPS} to {FRAMES_DIR}")
 
 
 if __name__ == "__main__":

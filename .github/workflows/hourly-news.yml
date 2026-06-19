@@ -51,6 +51,12 @@ jobs:
       - name: Render Blender video
         run: blender -b --python scripts/render_blender_video.py
 
+      - name: Verify rendered frames
+        run: |
+          count=$(find output/frames -type f -name 'frame_*' | wc -l)
+          echo "Rendered frame count: $count"
+          test "$count" -gt 0
+
       - name: Mix final audio
         run: python scripts/mix_audio.py
 

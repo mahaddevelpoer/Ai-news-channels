@@ -20,7 +20,7 @@ FINAL_AUDIO = ROOT_DIR / "output" / "final_audio.wav"
 TEMP_VIDEO = ROOT_DIR / "output" / "render_from_frames.mp4"
 FINAL_PATH = ROOT_DIR / "output" / "final_video.mp4"
 SAMPLE_RATE = 44100
-VIDEO_FPS = "12"
+VIDEO_FPS = "6"
 
 
 def wav_duration_seconds(path: Path) -> float:
