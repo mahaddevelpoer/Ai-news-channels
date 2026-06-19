@@ -320,7 +320,10 @@ def main() -> None:
         output_path = FRAMES_DIR / f"frame_{idx:04d}.png"
         scene.frame_set(source_frame)
         scene.render.filepath = str(output_path)
-        bpy.ops.render.render(write_still=True)
+        bpy.ops.render.render(write_still=False)
+        bpy.data.images["Render Result"].save_render(filepath=str(output_path), scene=scene)
+        if not output_path.exists():
+            raise RuntimeError(f"Blender rendered frame {source_frame} but did not write {output_path}")
 
     rendered_frames = sorted([p for p in FRAMES_DIR.iterdir() if p.is_file() and p.name.startswith("frame_")])
     if not rendered_frames:

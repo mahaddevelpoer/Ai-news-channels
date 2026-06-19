@@ -53,6 +53,8 @@ jobs:
 
       - name: Verify rendered frames
         run: |
+          ls -la output || true
+          ls -la output/frames || true
           count=$(find output/frames -type f -name 'frame_*' | wc -l)
           echo "Rendered frame count: $count"
           test "$count" -gt 0
