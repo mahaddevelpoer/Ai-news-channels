@@ -34,7 +34,7 @@ jobs:
       - name: Install FFmpeg and Blender
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg blender python3-numpy
+          sudo apt-get install -y ffmpeg blender python3-numpy libegl1 libgl1 libglx-mesa0 libxrender1 libxi6 libxkbcommon0
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
@@ -49,6 +49,8 @@ jobs:
         run: python scripts/create_voice.py
 
       - name: Render Blender video
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
         run: blender -b --python scripts/render_blender_video.py
 
       - name: Verify rendered frames
