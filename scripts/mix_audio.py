@@ -17,6 +17,7 @@ VOICE_PATH = ROOT_DIR / "output" / "voiceover.wav"
 MUSIC_PATH = ROOT_DIR / "assets" / "music" / "background.mp3"
 GENERATED_MUSIC = ROOT_DIR / "output" / "generated_music.wav"
 FINAL_PATH = ROOT_DIR / "output" / "final_video.mp4"
+BREAKING_ANIMATION = ROOT_DIR / "assets" / "animation.mp4"
 
 
 def generate_music(path: Path, duration_ms: int) -> None:
@@ -66,29 +67,101 @@ def main() -> None:
         matches = list(winget_ffmpeg.glob("Gyan.FFmpeg*_x64__*/*/bin/ffmpeg.exe"))
         ffmpeg = str(matches[0]) if matches else "ffmpeg"
 
-    video_input_args = ["-i", str(VIDEO_PATH)]
-    video_codec_args = ["-c:v", "copy"]
-    if not VIDEO_PATH.exists() and FRAMES_DIR.exists():
-        video_input_args = ["-framerate", "24", "-i", str(FRAMES_DIR / "frame_%04d.png")]
-        video_codec_args = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "23", "-preset", "medium"]
+    frames = sorted(FRAMES_DIR.glob("frame_*.png")) if FRAMES_DIR.exists() else []
+    print(f"Render video exists: {VIDEO_PATH.exists()}")
+    print(f"Rendered frame count: {len(frames)}")
 
-    subprocess.run(
-        [
-            ffmpeg,
-            "-y",
-            *video_input_args,
-            "-i",
-            str(audio_path),
-            *video_codec_args,
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-shortest",
-            str(FINAL_PATH),
-        ],
-        check=True,
-    )
+    commands: list[list[str]] = []
+    if VIDEO_PATH.exists():
+        commands.append(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                str(VIDEO_PATH),
+                "-i",
+                str(audio_path),
+                "-c:v",
+                "copy",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-shortest",
+                str(FINAL_PATH),
+            ]
+        )
+    if frames:
+        commands.append(
+            [
+                ffmpeg,
+                "-y",
+                "-framerate",
+                "24",
+                "-pattern_type",
+                "glob",
+                "-i",
+                str(FRAMES_DIR / "frame_*.png"),
+                "-i",
+                str(audio_path),
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-crf",
+                "23",
+                "-preset",
+                "medium",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-shortest",
+                str(FINAL_PATH),
+            ]
+        )
+    if BREAKING_ANIMATION.exists():
+        commands.append(
+            [
+                ffmpeg,
+                "-y",
+                "-stream_loop",
+                "-1",
+                "-i",
+                str(BREAKING_ANIMATION),
+                "-i",
+                str(audio_path),
+                "-t",
+                f"{duration_ms / 1000:.3f}",
+                "-vf",
+                "scale=1280:720,format=yuv420p",
+                "-c:v",
+                "libx264",
+                "-crf",
+                "23",
+                "-preset",
+                "medium",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-shortest",
+                str(FINAL_PATH),
+            ]
+        )
+
+    last_error: subprocess.CalledProcessError | None = None
+    for command in commands:
+        try:
+            subprocess.run(command, check=True)
+            last_error = None
+            break
+        except subprocess.CalledProcessError as exc:
+            last_error = exc
+            print(f"FFmpeg attempt failed with exit code {exc.returncode}. Trying fallback if available.")
+
+    if last_error is not None:
+        raise last_error
     print(f"Final video saved to {FINAL_PATH}")
 
 
