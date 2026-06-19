@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 import shutil
 import subprocess
 import wave
@@ -12,6 +13,7 @@ from state_manager import ROOT_DIR, ensure_dirs
 VIDEO_PATH = ROOT_DIR / "output" / "render.mp4"
 FRAMES_DIR = ROOT_DIR / "output" / "frames"
 VOICE_PATH = ROOT_DIR / "output" / "voiceover.wav"
+TIMINGS_PATH = ROOT_DIR / "output" / "timings.json"
 MUSIC_PATH = ROOT_DIR / "assets" / "music" / "background.mp3"
 GENERATED_MUSIC = ROOT_DIR / "output" / "generated_music.wav"
 FINAL_AUDIO = ROOT_DIR / "output" / "final_audio.wav"
@@ -24,6 +26,14 @@ VIDEO_FPS = "12"
 def wav_duration_seconds(path: Path) -> float:
     with wave.open(str(path), "rb") as wav:
         return wav.getnframes() / float(wav.getframerate())
+
+
+def timeline_duration_seconds() -> float:
+    if TIMINGS_PATH.exists():
+        with TIMINGS_PATH.open("r", encoding="utf-8") as handle:
+            timings = json.load(handle)
+        return max(1.0, timings.get("total_duration_ms", 1000) / 1000)
+    return wav_duration_seconds(VOICE_PATH)
 
 
 def generate_music(path: Path, duration_seconds: float) -> None:
@@ -65,7 +75,7 @@ def run(command: list[str]) -> bool:
 def main() -> None:
     ensure_dirs()
     ffmpeg = ffmpeg_path()
-    duration_seconds = wav_duration_seconds(VOICE_PATH)
+    duration_seconds = timeline_duration_seconds()
 
     music_input = MUSIC_PATH if MUSIC_PATH.exists() else GENERATED_MUSIC
     if not MUSIC_PATH.exists():
