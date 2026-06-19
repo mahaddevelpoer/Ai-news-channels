@@ -6,8 +6,6 @@ import subprocess
 import wave
 from pathlib import Path
 
-from pydub import AudioSegment
-
 from state_manager import ROOT_DIR, ensure_dirs
 
 
@@ -16,56 +14,86 @@ FRAMES_DIR = ROOT_DIR / "output" / "frames"
 VOICE_PATH = ROOT_DIR / "output" / "voiceover.wav"
 MUSIC_PATH = ROOT_DIR / "assets" / "music" / "background.mp3"
 GENERATED_MUSIC = ROOT_DIR / "output" / "generated_music.wav"
+FINAL_AUDIO = ROOT_DIR / "output" / "final_audio.wav"
 FINAL_PATH = ROOT_DIR / "output" / "final_video.mp4"
 BREAKING_ANIMATION = ROOT_DIR / "assets" / "animation.mp4"
+SAMPLE_RATE = 44100
 
 
-def generate_music(path: Path, duration_ms: int) -> None:
-    sample_rate = 44100
-    total = int(sample_rate * duration_ms / 1000)
+def wav_duration_seconds(path: Path) -> float:
+    with wave.open(str(path), "rb") as wav:
+        return wav.getnframes() / float(wav.getframerate())
+
+
+def generate_music(path: Path, duration_seconds: float) -> None:
+    total = int(SAMPLE_RATE * duration_seconds)
     with wave.open(str(path), "w") as wav:
         wav.setnchannels(2)
         wav.setsampwidth(2)
-        wav.setframerate(sample_rate)
+        wav.setframerate(SAMPLE_RATE)
         frames = bytearray()
         for i in range(total):
-            t = i / sample_rate
-            beat = 0.65 + 0.35 * (math.sin(2 * math.pi * 2 * t) > 0)
-            tone = math.sin(2 * math.pi * 110 * t) + 0.35 * math.sin(2 * math.pi * 220 * t)
-            value = int(32767 * 0.08 * beat * tone)
+            t = i / SAMPLE_RATE
+            pulse = 0.58 + 0.42 * (math.sin(2 * math.pi * 2.0 * t) > 0)
+            bass = math.sin(2 * math.pi * 92 * t)
+            pad = 0.38 * math.sin(2 * math.pi * 184 * t) + 0.22 * math.sin(2 * math.pi * 276 * t)
+            value = int(32767 * 0.075 * pulse * (bass + pad))
             frames.extend(value.to_bytes(2, "little", signed=True))
             frames.extend(value.to_bytes(2, "little", signed=True))
         wav.writeframes(frames)
 
 
+def ffmpeg_path() -> str:
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    winget_ffmpeg = Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Packages"
+    matches = list(winget_ffmpeg.glob("Gyan.FFmpeg*_x64__*/*/bin/ffmpeg.exe"))
+    return str(matches[0]) if matches else "ffmpeg"
+
+
+def run(command: list[str]) -> bool:
+    try:
+        subprocess.run(command, check=True)
+        return True
+    except subprocess.CalledProcessError as exc:
+        print(f"FFmpeg attempt failed with exit code {exc.returncode}")
+        return False
+
+
 def main() -> None:
     ensure_dirs()
-    voice = AudioSegment.from_file(VOICE_PATH).set_channels(2).set_frame_rate(44100).apply_gain(4)
-    duration_ms = len(voice)
+    ffmpeg = ffmpeg_path()
+    duration_seconds = wav_duration_seconds(VOICE_PATH)
 
-    if MUSIC_PATH.exists():
-        music = AudioSegment.from_file(MUSIC_PATH)
-    else:
-        generate_music(GENERATED_MUSIC, duration_ms)
-        music = AudioSegment.from_file(GENERATED_MUSIC)
+    music_input = MUSIC_PATH if MUSIC_PATH.exists() else GENERATED_MUSIC
+    if not MUSIC_PATH.exists():
+        print("No background music asset found. Generating newsroom music bed.")
+        generate_music(GENERATED_MUSIC, duration_seconds)
 
-    music = music.set_channels(2).set_frame_rate(44100)
-    while len(music) < duration_ms:
-        music += music
-    music = music[:duration_ms]
-
-    intro = music[:2500].apply_gain(-6)
-    bed = music[2500:].apply_gain(-19)
-    mixed = intro + bed
-    mixed = mixed.overlay(voice)
-    audio_path = ROOT_DIR / "output" / "final_audio.wav"
-    mixed.export(audio_path, format="wav")
-
-    ffmpeg = shutil.which("ffmpeg")
-    if ffmpeg is None:
-        winget_ffmpeg = Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Packages"
-        matches = list(winget_ffmpeg.glob("Gyan.FFmpeg*_x64__*/*/bin/ffmpeg.exe"))
-        ffmpeg = str(matches[0]) if matches else "ffmpeg"
+    run(
+        [
+            ffmpeg,
+            "-y",
+            "-stream_loop",
+            "-1",
+            "-i",
+            str(music_input),
+            "-i",
+            str(VOICE_PATH),
+            "-t",
+            f"{duration_seconds:.3f}",
+            "-filter_complex",
+            "[0:a]volume=0.22[music];[1:a]volume=1.35[voice];[music][voice]amix=inputs=2:duration=first:dropout_transition=0[aout]",
+            "-map",
+            "[aout]",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            str(FINAL_AUDIO),
+        ]
+    )
 
     frames = sorted(FRAMES_DIR.glob("frame_*.png")) if FRAMES_DIR.exists() else []
     print(f"Render video exists: {VIDEO_PATH.exists()}")
@@ -80,7 +108,7 @@ def main() -> None:
                 "-i",
                 str(VIDEO_PATH),
                 "-i",
-                str(audio_path),
+                str(FINAL_AUDIO),
                 "-c:v",
                 "copy",
                 "-c:a",
@@ -103,7 +131,7 @@ def main() -> None:
                 "-i",
                 str(FRAMES_DIR / "frame_*.png"),
                 "-i",
-                str(audio_path),
+                str(FINAL_AUDIO),
                 "-c:v",
                 "libx264",
                 "-pix_fmt",
@@ -130,9 +158,9 @@ def main() -> None:
                 "-i",
                 str(BREAKING_ANIMATION),
                 "-i",
-                str(audio_path),
+                str(FINAL_AUDIO),
                 "-t",
-                f"{duration_ms / 1000:.3f}",
+                f"{duration_seconds:.3f}",
                 "-vf",
                 "scale=1280:720,format=yuv420p",
                 "-c:v",
@@ -150,19 +178,12 @@ def main() -> None:
             ]
         )
 
-    last_error: subprocess.CalledProcessError | None = None
     for command in commands:
-        try:
-            subprocess.run(command, check=True)
-            last_error = None
-            break
-        except subprocess.CalledProcessError as exc:
-            last_error = exc
-            print(f"FFmpeg attempt failed with exit code {exc.returncode}. Trying fallback if available.")
+        if run(command):
+            print(f"Final video saved to {FINAL_PATH}")
+            return
 
-    if last_error is not None:
-        raise last_error
-    print(f"Final video saved to {FINAL_PATH}")
+    raise RuntimeError("Could not create final video from render frames, render.mp4, or animation fallback.")
 
 
 if __name__ == "__main__":
