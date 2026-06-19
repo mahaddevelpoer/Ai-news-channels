@@ -28,9 +28,10 @@ def tts_line(story: dict, index: int) -> str:
     summary = story.get("summary") or "More details are available on the source link."
     clean_summary = summary.replace("\n", " ").strip()
     return (
-        f"AI news update number {index}. {title}. "
-        f"According to {source}, {clean_summary[:240]}. "
-        "This is an important development in artificial intelligence."
+        f"AI news update number {index}. Aaj ki bari khabar: {title}. "
+        f"{source} ke mutabiq, {clean_summary[:220]}. "
+        "Artificial intelligence ki duniya mein yeh update kaafi important hai. "
+        "Chaliye aglay update ki taraf barhtay hain."
     )
 
 

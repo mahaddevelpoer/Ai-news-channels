@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-import json
 import shutil
 import subprocess
 import wave
@@ -12,13 +11,13 @@ from state_manager import ROOT_DIR, ensure_dirs
 
 VIDEO_PATH = ROOT_DIR / "output" / "render.mp4"
 FRAMES_DIR = ROOT_DIR / "output" / "frames"
-FRAME_MANIFEST = ROOT_DIR / "output" / "frame_manifest.json"
 VOICE_PATH = ROOT_DIR / "output" / "voiceover.wav"
 MUSIC_PATH = ROOT_DIR / "assets" / "music" / "background.mp3"
 GENERATED_MUSIC = ROOT_DIR / "output" / "generated_music.wav"
 FINAL_AUDIO = ROOT_DIR / "output" / "final_audio.wav"
 FINAL_PATH = ROOT_DIR / "output" / "final_video.mp4"
 SAMPLE_RATE = 44100
+VIDEO_FPS = "12"
 
 
 def wav_duration_seconds(path: Path) -> float:
@@ -121,28 +120,17 @@ def main() -> None:
                 str(FINAL_PATH),
             ]
         )
-    if FRAME_MANIFEST.exists():
-        with FRAME_MANIFEST.open("r", encoding="utf-8") as handle:
-            manifest = json.load(handle)["frames"]
-        concat_path = ROOT_DIR / "output" / "frames_concat.txt"
-        lines = []
-        for item in manifest:
-            frame_path = Path(item["file"]).resolve().as_posix()
-            lines.append(f"file '{frame_path}'")
-            lines.append(f"duration {item['duration_ms'] / 1000:.3f}")
-        if manifest:
-            lines.append(f"file '{Path(manifest[-1]['file']).resolve().as_posix()}'")
-        concat_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if frames:
         commands.append(
             [
                 ffmpeg,
                 "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
+                "-framerate",
+                VIDEO_FPS,
+                "-pattern_type",
+                "glob",
                 "-i",
-                str(concat_path),
+                str(FRAMES_DIR / "frame_*.png"),
                 "-i",
                 str(FINAL_AUDIO),
                 "-vf",
@@ -161,8 +149,6 @@ def main() -> None:
                 str(FINAL_PATH),
             ]
         )
-    elif frames:
-        raise RuntimeError("Studio frames exist but frame_manifest.json is missing.")
 
     for command in commands:
         if run(command):
