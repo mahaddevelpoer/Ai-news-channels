@@ -15,6 +15,7 @@ VOICE_PATH = ROOT_DIR / "output" / "voiceover.wav"
 MUSIC_PATH = ROOT_DIR / "assets" / "music" / "background.mp3"
 GENERATED_MUSIC = ROOT_DIR / "output" / "generated_music.wav"
 FINAL_AUDIO = ROOT_DIR / "output" / "final_audio.wav"
+TEMP_VIDEO = ROOT_DIR / "output" / "render_from_frames.mp4"
 FINAL_PATH = ROOT_DIR / "output" / "final_video.mp4"
 SAMPLE_RATE = 44100
 VIDEO_FPS = "12"
@@ -71,7 +72,7 @@ def main() -> None:
         print("No background music asset found. Generating newsroom music bed.")
         generate_music(GENERATED_MUSIC, duration_seconds)
 
-    if not run(
+    audio_mixed = run(
         [
             ffmpeg,
             "-y",
@@ -93,8 +94,25 @@ def main() -> None:
             "2",
             str(FINAL_AUDIO),
         ]
-    ):
-        raise RuntimeError("Could not mix voiceover with background music.")
+    )
+    if not audio_mixed:
+        print("Music mix failed. Falling back to voice-only final audio.")
+        if not run(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                str(VOICE_PATH),
+                "-filter:a",
+                "volume=1.35",
+                "-ar",
+                "44100",
+                "-ac",
+                "2",
+                str(FINAL_AUDIO),
+            ]
+        ):
+            raise RuntimeError("Could not prepare final audio.")
 
     frames = sorted(FRAMES_DIR.glob("frame_*.png")) if FRAMES_DIR.exists() else []
     print(f"Render video exists: {VIDEO_PATH.exists()}")
@@ -121,26 +139,16 @@ def main() -> None:
             ]
         )
     if frames:
-        concat_path = ROOT_DIR / "output" / "render_frames.txt"
-        frame_duration = 1 / float(VIDEO_FPS)
-        lines = []
-        for frame in frames:
-            lines.append(f"file '{frame.resolve().as_posix()}'")
-            lines.append(f"duration {frame_duration:.6f}")
-        lines.append(f"file '{frames[-1].resolve().as_posix()}'")
-        concat_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        commands.append(
+        encoded = run(
             [
                 ffmpeg,
                 "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
+                "-framerate",
+                VIDEO_FPS,
+                "-start_number",
+                "1",
                 "-i",
-                str(concat_path),
-                "-i",
-                str(FINAL_AUDIO),
+                str(FRAMES_DIR / "frame_%04d.png"),
                 "-vf",
                 "fps=24,scale=1280:720,format=yuv420p",
                 "-c:v",
@@ -149,6 +157,45 @@ def main() -> None:
                 "23",
                 "-preset",
                 "medium",
+                str(TEMP_VIDEO),
+            ]
+        )
+        if not encoded:
+            print("Sequential frame pattern failed. Trying glob pattern.")
+            encoded = run(
+                [
+                    ffmpeg,
+                    "-y",
+                    "-framerate",
+                    VIDEO_FPS,
+                    "-pattern_type",
+                    "glob",
+                    "-i",
+                    str(FRAMES_DIR / "frame_*.png"),
+                    "-vf",
+                    "fps=24,scale=1280:720,format=yuv420p",
+                    "-c:v",
+                    "libx264",
+                    "-crf",
+                    "23",
+                    "-preset",
+                    "medium",
+                    str(TEMP_VIDEO),
+                ]
+            )
+        if not encoded:
+            raise RuntimeError("Could not encode rendered studio frames.")
+
+        commands.append(
+            [
+                ffmpeg,
+                "-y",
+                "-i",
+                str(TEMP_VIDEO),
+                "-i",
+                str(FINAL_AUDIO),
+                "-c:v",
+                "copy",
                 "-c:a",
                 "aac",
                 "-b:a",
