@@ -121,16 +121,24 @@ def main() -> None:
             ]
         )
     if frames:
+        concat_path = ROOT_DIR / "output" / "render_frames.txt"
+        frame_duration = 1 / float(VIDEO_FPS)
+        lines = []
+        for frame in frames:
+            lines.append(f"file '{frame.resolve().as_posix()}'")
+            lines.append(f"duration {frame_duration:.6f}")
+        lines.append(f"file '{frames[-1].resolve().as_posix()}'")
+        concat_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         commands.append(
             [
                 ffmpeg,
                 "-y",
-                "-framerate",
-                VIDEO_FPS,
-                "-pattern_type",
-                "glob",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
                 "-i",
-                str(FRAMES_DIR / "frame_*.png"),
+                str(concat_path),
                 "-i",
                 str(FINAL_AUDIO),
                 "-vf",
