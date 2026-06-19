@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from state_manager import ROOT_DIR, ensure_dirs
 
@@ -19,6 +19,18 @@ def roman_urdu_line(story: dict, index: int) -> str:
         f"Khabar number {index}. {title}. "
         f"{source} ke mutabiq, {clean_summary[:260]}. "
         "Yeh artificial intelligence ki duniya mein aik ahem update hai."
+    )
+
+
+def tts_line(story: dict, index: int) -> str:
+    title = story["title"].rstrip(".")
+    source = story.get("source", "AI News")
+    summary = story.get("summary") or "More details are available on the source link."
+    clean_summary = summary.replace("\n", " ").strip()
+    return (
+        f"AI news update number {index}. {title}. "
+        f"According to {source}, {clean_summary[:240]}. "
+        "This is an important development in artificial intelligence."
     )
 
 
@@ -40,12 +52,14 @@ def main() -> None:
                 "story_id": story["id"],
                 "link": story["link"],
                 "text": roman_urdu_line(story, idx),
+                "tts_text": tts_line(story, idx),
             }
         )
 
+    now = datetime.now(timezone.utc)
     script = {
-        "title": f"AI News Update | Latest Artificial Intelligence News | {datetime.utcnow():%Y-%m-%d}",
-        "created_at": datetime.utcnow().isoformat() + "Z",
+        "title": f"AI News Update | Latest Artificial Intelligence News | {now:%Y-%m-%d}",
+        "created_at": now.isoformat(),
         "language": "Roman Urdu",
         "segments": segments,
     }

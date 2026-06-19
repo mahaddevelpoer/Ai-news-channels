@@ -13,6 +13,7 @@ TIMINGS_PATH = ROOT_DIR / "output" / "timings.json"
 SCRIPT_PATH = ROOT_DIR / "output" / "script.json"
 VIDEO_PATH = ROOT_DIR / "output" / "render.mp4"
 FRAMES_DIR = ROOT_DIR / "output" / "frames"
+FRAME_MANIFEST = ROOT_DIR / "output" / "frame_manifest.json"
 
 STUDIO_FBX = ASSETS_DIR / "studio" / "scifi-tron-studio-baked" / "source" / "3.fbx"
 IDLE_ANCHOR_FBX = ASSETS_DIR / "models" / "Breathing Idle.fbx"
@@ -202,7 +203,6 @@ def main() -> None:
     bpy.context.scene.render.fps = FPS
     bpy.context.scene.render.resolution_x = 1280
     bpy.context.scene.render.resolution_y = 720
-    bpy.context.scene.render.filepath = str(FRAMES_DIR / "frame_")
     bpy.context.scene.render.image_settings.file_format = "PNG"
     try:
         bpy.context.scene.render.engine = "BLENDER_EEVEE_NEXT"
@@ -243,6 +243,7 @@ def main() -> None:
     keyframe_obj(breaking_plane, 62, loc=(0, -2.15, 2.0), scale=(3.2, 1.8, 1))
     keyframe_obj(breaking_plane, 100, loc=(-1.78, -2.05, 2.58), scale=(1.08, 0.62, 1))
 
+    render_plan = [{"source_frame": 1, "duration_ms": 1800}]
     for segment in timings["segments"]:
         start = max(100, int(segment["start_ms"] / 1000 * FPS))
         end = max(start + 30, int(segment["end_ms"] / 1000 * FPS))
@@ -273,14 +274,33 @@ def main() -> None:
 
         keyframe_obj(breaking_plane, min(total_frames, end + 30), loc=(0, -2.15, 2.0), scale=(3.2, 1.8, 1))
         keyframe_camera(camera, min(total_frames, end + 42), (0, -4.5, 2.25), (66, 0, 0), 30)
+        render_plan.extend(
+            [
+                {"source_frame": max(1, start - 20), "duration_ms": 900},
+                {"source_frame": min(total_frames, start + 42), "duration_ms": segment["duration_ms"]},
+                {"source_frame": min(total_frames, end + 30), "duration_ms": 550},
+            ]
+        )
 
     keyframe_camera(camera, total_frames - 72, (0, -4.4, 2.3), (66, 0, 0), 30)
     keyframe_camera(camera, total_frames, (0, -5.5, 2.45), (66, 0, 0), 26)
     keyframe_obj(breaking_plane, total_frames - 72, loc=(-1.78, -2.05, 2.58), scale=(1.08, 0.62, 1))
     keyframe_obj(breaking_plane, total_frames, loc=(0, -2.15, 2.0), scale=(3.2, 1.8, 1))
+    render_plan.append({"source_frame": total_frames, "duration_ms": 1800})
 
     bpy.ops.wm.save_as_mainfile(filepath=str(ROOT_DIR / "output" / "scene.blend"))
-    bpy.ops.render.render(animation=True)
+    manifest = []
+    for idx, item in enumerate(render_plan, start=1):
+        frame_path = FRAMES_DIR / f"frame_{idx:04d}.png"
+        bpy.context.scene.frame_set(item["source_frame"])
+        bpy.context.scene.render.filepath = str(frame_path)
+        bpy.ops.render.render(write_still=True)
+        manifest.append({"file": str(frame_path), "duration_ms": item["duration_ms"]})
+
+    with FRAME_MANIFEST.open("w", encoding="utf-8") as handle:
+        json.dump({"frames": manifest}, handle, indent=2)
+
+    print(f"Rendered {len(manifest)} studio keyframes to {FRAMES_DIR}")
 
 
 if __name__ == "__main__":

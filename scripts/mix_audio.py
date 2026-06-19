@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import json
 import shutil
 import subprocess
 import wave
@@ -11,12 +12,12 @@ from state_manager import ROOT_DIR, ensure_dirs
 
 VIDEO_PATH = ROOT_DIR / "output" / "render.mp4"
 FRAMES_DIR = ROOT_DIR / "output" / "frames"
+FRAME_MANIFEST = ROOT_DIR / "output" / "frame_manifest.json"
 VOICE_PATH = ROOT_DIR / "output" / "voiceover.wav"
 MUSIC_PATH = ROOT_DIR / "assets" / "music" / "background.mp3"
 GENERATED_MUSIC = ROOT_DIR / "output" / "generated_music.wav"
 FINAL_AUDIO = ROOT_DIR / "output" / "final_audio.wav"
 FINAL_PATH = ROOT_DIR / "output" / "final_video.mp4"
-BREAKING_ANIMATION = ROOT_DIR / "assets" / "animation.mp4"
 SAMPLE_RATE = 44100
 
 
@@ -71,7 +72,7 @@ def main() -> None:
         print("No background music asset found. Generating newsroom music bed.")
         generate_music(GENERATED_MUSIC, duration_seconds)
 
-    run(
+    if not run(
         [
             ffmpeg,
             "-y",
@@ -93,7 +94,8 @@ def main() -> None:
             "2",
             str(FINAL_AUDIO),
         ]
-    )
+    ):
+        raise RuntimeError("Could not mix voiceover with background music.")
 
     frames = sorted(FRAMES_DIR.glob("frame_*.png")) if FRAMES_DIR.exists() else []
     print(f"Render video exists: {VIDEO_PATH.exists()}")
@@ -119,50 +121,32 @@ def main() -> None:
                 str(FINAL_PATH),
             ]
         )
-    if frames:
+    if FRAME_MANIFEST.exists():
+        with FRAME_MANIFEST.open("r", encoding="utf-8") as handle:
+            manifest = json.load(handle)["frames"]
+        concat_path = ROOT_DIR / "output" / "frames_concat.txt"
+        lines = []
+        for item in manifest:
+            frame_path = Path(item["file"]).resolve().as_posix()
+            lines.append(f"file '{frame_path}'")
+            lines.append(f"duration {item['duration_ms'] / 1000:.3f}")
+        if manifest:
+            lines.append(f"file '{Path(manifest[-1]['file']).resolve().as_posix()}'")
+        concat_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         commands.append(
             [
                 ffmpeg,
                 "-y",
-                "-framerate",
-                "24",
-                "-pattern_type",
-                "glob",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
                 "-i",
-                str(FRAMES_DIR / "frame_*.png"),
-                "-i",
-                str(FINAL_AUDIO),
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-crf",
-                "23",
-                "-preset",
-                "medium",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-                "-shortest",
-                str(FINAL_PATH),
-            ]
-        )
-    if BREAKING_ANIMATION.exists():
-        commands.append(
-            [
-                ffmpeg,
-                "-y",
-                "-stream_loop",
-                "-1",
-                "-i",
-                str(BREAKING_ANIMATION),
+                str(concat_path),
                 "-i",
                 str(FINAL_AUDIO),
-                "-t",
-                f"{duration_seconds:.3f}",
                 "-vf",
-                "scale=1280:720,format=yuv420p",
+                "fps=24,scale=1280:720,format=yuv420p",
                 "-c:v",
                 "libx264",
                 "-crf",
@@ -177,13 +161,15 @@ def main() -> None:
                 str(FINAL_PATH),
             ]
         )
+    elif frames:
+        raise RuntimeError("Studio frames exist but frame_manifest.json is missing.")
 
     for command in commands:
         if run(command):
             print(f"Final video saved to {FINAL_PATH}")
             return
 
-    raise RuntimeError("Could not create final video from render frames, render.mp4, or animation fallback.")
+    raise RuntimeError("Could not create final video. Studio render frames are required; animation.mp4 is not used as a final-video fallback.")
 
 
 if __name__ == "__main__":
