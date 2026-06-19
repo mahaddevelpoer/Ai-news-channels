@@ -1,0 +1,78 @@
+name: Hourly AI News Video
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hourly-ai-news-video
+  cancel-in-progress: false
+
+jobs:
+  build-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install FFmpeg and Blender
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg blender
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch latest news
+        run: python scripts/fetch_news.py
+
+      - name: Generate Roman Urdu script
+        run: python scripts/generate_script.py
+
+      - name: Create voiceover
+        run: python scripts/create_voice.py
+
+      - name: Render Blender video
+        run: blender -b --python scripts/render_blender_video.py
+
+      - name: Mix final audio
+        run: python scripts/mix_audio.py
+
+      - name: Upload to YouTube
+        env:
+          YOUTUBE_CLIENT_SECRETS_JSON: ${{ secrets.YOUTUBE_CLIENT_SECRETS_JSON }}
+          YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+          YOUTUBE_PRIVACY_STATUS: ${{ vars.YOUTUBE_PRIVACY_STATUS || 'private' }}
+        run: python scripts/upload_youtube.py
+
+      - name: Commit updated state
+        run: |
+          if [ -n "$(git status --porcelain data/uploaded_news.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/uploaded_news.json
+            git commit -m "Update AI news channel state"
+            git push
+          else
+            echo "No state changes to commit."
+          fi
+
+      - name: Upload video artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-news-video
+          path: output/final_video.mp4
+          if-no-files-found: warn
